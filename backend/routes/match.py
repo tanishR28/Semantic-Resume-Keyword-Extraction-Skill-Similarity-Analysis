@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 
-from backend.models.match import MatchRequest, MatchResponse
-from backend.services.matcher import match_resume_to_jd
-from backend.services.parser import parse_resume
+from models.match import MatchRequest, MatchResponse
+from services.matcher import match_resume_to_jd
+from services.parser import parse_resume
 
 
 router = APIRouter(tags=["match"])
