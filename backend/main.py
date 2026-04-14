@@ -1,7 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routes.match import router as match_router
+try:
+    from routes.match import router as match_router
+except ModuleNotFoundError:
+    from backend.routes.match import router as match_router
 
 
 app = FastAPI(title="ATS Resume Matcher API", version="0.1.0")
