@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
+import { useATSContext } from '../context/ATSContext';
 
 type SidebarProps = {
   collapsed: boolean;
@@ -7,12 +8,16 @@ type SidebarProps = {
 
 const Sidebar = ({ collapsed, onToggle }: SidebarProps) => {
   const location = useLocation();
+  const { resumeList, selectedResumeId, setSelectedResumeId, analysisDone } = useATSContext();
 
   const isActive = (path: string) => {
     if (path === '/' && location.pathname === '/') return true;
     if (path !== '/' && location.pathname.startsWith(path)) return true;
     return false;
   };
+
+  const isATSPage = isActive('/ats') || isActive('/') || isActive('/candidate');
+  const showResumeList = isATSPage && analysisDone && resumeList.length > 0 && !collapsed;
 
   return (
     <aside className={`h-screen fixed left-0 top-0 overflow-y-auto bg-[#f7f9fb] border-r border-slate-200 flex flex-col py-6 px-3 gap-y-6 z-50 transition-all duration-300 ${collapsed ? 'w-20' : 'w-64'}`}>
@@ -33,15 +38,57 @@ const Sidebar = ({ collapsed, onToggle }: SidebarProps) => {
         <Link
           to="/ats"
           className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-4 py-3 font-headline text-sm rounded-md transition-all duration-300 ${
-            isActive('/ats') || isActive('/') || isActive('/candidate')
+            isATSPage
               ? 'text-indigo-600 font-bold bg-white shadow-sm'
               : 'text-slate-500 hover:text-indigo-500 hover:bg-white/70'
           }`}
           title="ATS"
         >
-          <span className="material-symbols-outlined" style={{ fontVariationSettings: isActive('/ats') || isActive('/') ? "'FILL' 1" : "'FILL' 0" }}>groups</span>
+          <span className="material-symbols-outlined" style={{ fontVariationSettings: isATSPage ? "'FILL' 1" : "'FILL' 0" }}>groups</span>
           {!collapsed && <span>ATS</span>}
         </Link>
+
+        {/* ── Resume list under ATS nav item ── */}
+        {showResumeList && (
+          <div className="flex flex-col gap-0.5 ml-2 mr-1 max-h-[calc(100vh-380px)] overflow-y-auto custom-scrollbar pr-1">
+            <div className="flex items-center justify-between px-3 py-1.5 mb-1">
+              <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Ranked Results</span>
+              <span className="text-[9px] font-bold text-slate-400">{resumeList.length}</span>
+            </div>
+            {resumeList.map((resume, idx) => {
+              const active = selectedResumeId === resume.id;
+              const scoreColor =
+                resume.score >= 80 ? 'text-green-600' :
+                resume.score >= 60 ? 'text-amber-500' :
+                'text-red-500';
+              return (
+                <button
+                  key={resume.id}
+                  onClick={() => setSelectedResumeId(resume.id)}
+                  className={`w-full text-left rounded-md px-3 py-2 transition-all duration-150 flex items-center gap-2.5 group ${
+                    active
+                      ? 'bg-indigo-50 border border-indigo-200 shadow-sm'
+                      : 'border border-transparent hover:bg-white hover:border-slate-200'
+                  }`}
+                  title={`${resume.name} — ${resume.score}%`}
+                >
+                  {/* Rank number */}
+                  <span className={`text-[9px] font-black w-4 text-center shrink-0 ${active ? 'text-indigo-500' : 'text-slate-300'}`}>
+                    {idx + 1}
+                  </span>
+                  {/* Name */}
+                  <span className={`text-xs truncate flex-1 ${active ? 'font-bold text-indigo-700' : 'font-medium text-slate-600'}`}>
+                    {resume.name}
+                  </span>
+                  {/* Score */}
+                  <span className={`text-xs font-black tabular-nums shrink-0 ${active ? 'text-indigo-600' : scoreColor}`}>
+                    {resume.score}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <Link
           to="/job-management"

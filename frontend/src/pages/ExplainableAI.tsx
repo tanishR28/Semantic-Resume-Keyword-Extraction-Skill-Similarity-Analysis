@@ -1,4 +1,3 @@
-import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TALENT_DATA } from '../data';
 
@@ -7,6 +6,11 @@ const ExplainableAI = () => {
   const navigate = useNavigate();
   // Ensure we fall back to the first candidate if ID doesn't match
   const cand = TALENT_DATA.candidates.find(c => c.id === id) || TALENT_DATA.candidates[0];
+  const xai = cand.xai_insights ?? {
+    strengths: ['No explainable strengths available.'],
+    gaps: ['No explainable gaps available.'],
+    verdict: 'Explainability details are unavailable for this candidate.',
+  };
 
   return (
     <div className="flex h-full gap-0 -m-10 min-h-[calc(100vh-80px)]">
@@ -199,7 +203,7 @@ const ExplainableAI = () => {
                   <span className="material-symbols-outlined text-[14px]">add_circle</span> Strengths
                 </p>
                 <ul className="space-y-3">
-                  {cand.xai_insights.strengths.map((str, i) => (
+                  {xai.strengths.map((str, i) => (
                     <li key={i} className="flex items-start gap-2 text-xs text-on-surface-variant">
                       <span className="w-1.5 h-1.5 rounded-full bg-secondary mt-1.5 shrink-0"></span>
                       <span className="leading-relaxed">{str}</span>
@@ -213,7 +217,7 @@ const ExplainableAI = () => {
                   <span className="material-symbols-outlined text-[14px]">do_not_disturb_on</span> Potential Gaps
                 </p>
                 <ul className="space-y-3">
-                  {cand.xai_insights.gaps.map((gap, i) => (
+                  {xai.gaps.map((gap, i) => (
                     <li key={i} className="flex items-start gap-2 text-xs text-on-surface-variant">
                       <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${cand.integrity === 'Suspicious' ? 'bg-error animate-pulse' : 'bg-tertiary/70'}`}></span>
                       <span className="leading-relaxed">{gap}</span>
@@ -225,7 +229,7 @@ const ExplainableAI = () => {
               <div className="pt-4 border-t border-outline-variant/10 mt-4">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-2">AI Verdict</p>
                 <p className="text-xs text-on-surface font-medium leading-relaxed bg-surface-container-high/30 p-3 rounded-lg border border-outline-variant/10">
-                  {cand.xai_insights.verdict}
+                  {xai.verdict}
                 </p>
               </div>
             </div>

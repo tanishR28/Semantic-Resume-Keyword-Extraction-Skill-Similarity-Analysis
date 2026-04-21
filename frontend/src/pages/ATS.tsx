@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { analyzeResumes, fetchJobs } from '../api';
+import { useATSContext } from '../context/ATSContext';
 
 type Breakdown = {
   semantic: number;
@@ -45,7 +46,7 @@ const PIPELINE_STEPS: PipelineStep[] = [
   { key: 'xai', label: 'Generate Explainable AI', icon: 'lightbulb' },
 ];
 
-const FALLBACK_PDF = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
+const FALLBACK_PDF = 'about:blank';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -90,7 +91,32 @@ const getLabelPoint = (axisIndex: number, total = 6) => {
   };
 };
 
+/* ─── Score ring component ─── */
+const ScoreRing = ({ score }: { score: number }) => {
+  const r = 38;
+  const circ = 2 * Math.PI * r;
+  const offset = circ - (score / 100) * circ;
+  const color =
+    score >= 80 ? '#22c55e' : score >= 60 ? '#eab308' : '#ef4444';
+
+  return (
+    <svg viewBox="0 0 100 100" className="w-full h-full">
+      <circle cx="50" cy="50" r={r} fill="none" stroke="currentColor" strokeWidth="5" className="text-slate-100" />
+      <circle
+        cx="50" cy="50" r={r} fill="none" stroke={color} strokeWidth="5"
+        strokeDasharray={circ} strokeDashoffset={offset}
+        strokeLinecap="round"
+        className="transition-all duration-1000"
+        style={{ transform: 'rotate(-90deg)', transformOrigin: '50% 50%' }}
+      />
+      <text x="50" y="46" textAnchor="middle" dominantBaseline="middle" fontSize="18" fontWeight="800" fill="currentColor" className="text-on-surface">{score}</text>
+      <text x="50" y="60" textAnchor="middle" dominantBaseline="middle" fontSize="6" fontWeight="700" className="fill-current text-on-surface-variant" letterSpacing="2">SCORE</text>
+    </svg>
+  );
+};
+
 const ATS = () => {
+  const atsCtx = useATSContext();
   const [jobs, setJobs] = useState<Array<{ id: string; title: string; description?: string; weights: any }>>([]);
   const [selectedJobId, setSelectedJobId] = useState('');
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
@@ -99,10 +125,24 @@ const ATS = () => {
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeStep, setActiveStep] = useState(-1);
-  const [analysisDone, setAnalysisDone] = useState(false);
+  const [analysisDone, setLocalAnalysisDone] = useState(false);
+  const [analysisDuration, setAnalysisDuration] = useState(0);
 
   const [results, setResults] = useState<ResumeRecord[]>([]);
-  const [selectedResumeId, setSelectedResumeId] = useState<string>('');
+  const selectedResumeId = atsCtx.selectedResumeId;
+  const setSelectedResumeId = atsCtx.setSelectedResumeId;
+  const analysisStartRef = useRef(0);
+
+  // Sync local analysisDone → context
+  const setAnalysisDone = (v: boolean) => {
+    setLocalAnalysisDone(v);
+    atsCtx.setAnalysisDone(v);
+  };
+
+  // Sync results → context whenever results change
+  useEffect(() => {
+    atsCtx.setResumeList(results.map(r => ({ id: r.id, name: r.name, score: r.score })));
+  }, [results]);
 
   const selectedJob = useMemo(() => jobs.find((j) => j.id === selectedJobId), [jobs, selectedJobId]);
 
@@ -154,6 +194,7 @@ const ATS = () => {
     setIsAnalyzing(true);
     setAnalysisDone(false);
     setActiveStep(-1);
+    analysisStartRef.current = Date.now();
 
     for (let i = 0; i < PIPELINE_STEPS.length; i += 1) {
       setActiveStep(i);
@@ -178,6 +219,7 @@ const ATS = () => {
 
       setResults(sorted);
       setSelectedResumeId(sorted[0]?.id ?? '');
+      setAnalysisDuration(((Date.now() - analysisStartRef.current) / 1000));
       setAnalysisDone(true);
     } catch {
       setApiMode('fallback');
@@ -190,8 +232,11 @@ const ATS = () => {
     }
   };
 
+
+
   return (
-    <div className="relative flex gap-8 min-h-full">
+    <div className="relative flex flex-col min-h-full">
+      {/* ─── PRE-ANALYSIS: Upload Section ─── */}
       <div className={`flex-1 flex flex-col gap-6 pb-10 transition-all duration-200 ${isAnalyzing ? 'blur-xl pointer-events-none select-none saturate-50 opacity-70' : ''}`}>
         {!analysisDone && (
           <section className="bg-surface-container-lowest rounded-2xl border border-outline-variant/10 p-6 shadow-sm">
@@ -263,182 +308,217 @@ const ATS = () => {
           </section>
         )}
 
+        {/* ─── POST-ANALYSIS: Full-bleed split view ─── */}
         {analysisDone && results.length > 0 && (
-          <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-4 xl:col-span-3 bg-surface-container-lowest rounded-2xl border border-outline-variant/10 p-4 shadow-sm h-[76vh] overflow-y-auto custom-scrollbar">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-headline font-bold text-base">Ranked Resumes</h3>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Name + Score</span>
+          <section className="flex flex-col -mx-10 -mb-10" style={{ minHeight: 'calc(100vh - 40px)' }}>
+            <div className="flex flex-1 h-0 min-h-0" style={{ height: 'calc(100vh - 80px)' }}>
+              {/* ── LEFT 70%: PDF Preview (edge-to-edge, no box) ── */}
+              <div className="flex-[7] flex flex-col min-w-0 bg-[#525659]">
+                <iframe
+                  key={selectedResume?.id ?? 'empty'}
+                  title={`resume-viewer-${selectedResume?.id ?? 'none'}`}
+                  src={selectedResume?.resume_url || FALLBACK_PDF}
+                  className="w-full flex-1"
+                  style={{ border: 'none' }}
+                />
               </div>
-              <div className="flex flex-col gap-2">
-                {results.map((resume) => (
-                  <button
-                    key={resume.id}
-                    onClick={() => setSelectedResumeId(resume.id)}
-                    className={`w-full text-left rounded-lg border px-3 py-3 transition-all ${selectedResume?.id === resume.id ? 'border-primary bg-primary/5' : 'border-outline-variant/15 hover:bg-surface-bright'}`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-bold truncate">{resume.name}</span>
-                      <span className="text-sm font-black text-primary">{resume.score}</span>
+
+              {/* ── RIGHT 30%: Analysis panel ── */}
+              <aside className="flex-[3] flex flex-col border-l border-outline-variant/15 bg-surface-container-lowest overflow-y-auto custom-scrollbar min-w-[320px] max-w-[440px]">
+
+
+
+                {selectedResume && (
+                  <>
+                    {/* Candidate header + score ring */}
+                    <div className="px-5 pt-5 pb-4 border-b border-outline-variant/10">
+                      <div className="flex items-start gap-4">
+                        <div className="w-20 h-20 shrink-0">
+                          <ScoreRing score={selectedResume.score} />
+                        </div>
+                        <div className="flex-1 min-w-0 pt-1">
+                          <h2 className="font-headline text-lg font-bold tracking-tight text-on-surface truncate">{selectedResume.name}</h2>
+                          <p className="text-sm text-on-surface-variant truncate">{selectedResume.role}</p>
+                          <p className="text-xs text-on-surface-variant/60 mt-0.5">{selectedResume.location}</p>
+                          <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wide uppercase mt-2 border ${
+                            selectedResume.integrity === 'Genuine' ? 'bg-green-50 text-green-700 border-green-200' :
+                            selectedResume.integrity === 'Suspicious' ? 'bg-red-50 text-red-600 border-red-200' :
+                            'bg-slate-50 text-slate-500 border-slate-200'
+                          }`}>
+                            <span className="material-symbols-outlined text-[12px]" style={{fontVariationSettings: "'FILL' 1"}}>
+                              {selectedResume.integrity === 'Genuine' ? 'verified' : selectedResume.integrity === 'Suspicious' ? 'warning' : 'pending'}
+                            </span>
+                            {selectedResume.integrity}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </button>
-                ))}
-              </div>
+
+                    {/* Radar chart */}
+                    <div className="px-5 py-4 border-b border-outline-variant/10">
+                      <h5 className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-2">JD Match Radar</h5>
+                      <div className="w-full max-w-[220px] mx-auto">
+                        <svg viewBox="0 0 100 100" className="w-full h-full">
+                          {[10, 20, 30, 40].map((r) => (
+                            <polygon
+                              key={r}
+                              points={Array.from({ length: 6 }).map((_, i) => {
+                                const angle = (Math.PI * 2 * i) / 6 - Math.PI / 2;
+                                return `${50 + Math.cos(angle) * r},${50 + Math.sin(angle) * r}`;
+                              }).join(' ')}
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="0.5"
+                              className="text-outline-variant/50"
+                            />
+                          ))}
+
+                          {Array.from({ length: 6 }).map((_, i) => {
+                            const out = getOuterPoint(i, 6);
+                            return (
+                              <line
+                                key={i}
+                                x1={50}
+                                y1={50}
+                                x2={out.x}
+                                y2={out.y}
+                                stroke="currentColor"
+                                strokeWidth="0.45"
+                                className="text-outline-variant/40"
+                              />
+                            );
+                          })}
+
+                          <polygon
+                            points={toPolygonPoints(selectedResume.breakdown)}
+                            fill="rgba(70, 72, 212, 0.2)"
+                            stroke="#4648d4"
+                            strokeWidth="1.5"
+                          />
+
+                          {['SEM', 'SKILL', 'EXP', 'EDU', 'PROJ', 'ALIGN'].map((label, i) => {
+                            const p = getLabelPoint(i, 6);
+                            return (
+                              <text
+                                key={label}
+                                x={p.x}
+                                y={p.y}
+                                textAnchor="middle"
+                                dominantBaseline="middle"
+                                fontSize="3"
+                                className="fill-current text-on-surface-variant"
+                              >
+                                {label}
+                              </text>
+                            );
+                          })}
+                        </svg>
+                      </div>
+
+                      {/* Breakdown grid */}
+                      <div className="grid grid-cols-2 gap-1.5 mt-3 text-[10px] font-bold">
+                        <div className="rounded-md bg-surface-container px-2 py-1 flex justify-between"><span>Semantic</span><span>{toPercent(selectedResume.breakdown.semantic)}</span></div>
+                        <div className="rounded-md bg-surface-container px-2 py-1 flex justify-between"><span>Skills</span><span>{toPercent(selectedResume.breakdown.skills)}</span></div>
+                        <div className="rounded-md bg-surface-container px-2 py-1 flex justify-between"><span>Experience</span><span>{toPercent(selectedResume.breakdown.experience)}</span></div>
+                        <div className="rounded-md bg-surface-container px-2 py-1 flex justify-between"><span>Education</span><span>{toPercent(selectedResume.breakdown.education)}</span></div>
+                        <div className="rounded-md bg-surface-container px-2 py-1 flex justify-between"><span>Projects</span><span>{toPercent(selectedResume.breakdown.projects)}</span></div>
+                        <div className="rounded-md bg-surface-container px-2 py-1 flex justify-between"><span>Alignment</span><span>{toPercent(selectedResume.breakdown.alignment)}</span></div>
+                      </div>
+                    </div>
+
+                    {/* Explainable AI */}
+                    <div className="px-5 py-4 flex-1">
+                      <h5 className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-3 flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-indigo-500 text-sm">psychology</span>
+                        Explainable AI
+                      </h5>
+
+                      <div className="space-y-4">
+                        {/* Strengths */}
+                        <div>
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-green-600 mb-2 flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[12px]">add_circle</span> Strengths
+                          </p>
+                          <ul className="space-y-2">
+                            {(selectedResume.xai_insights?.strengths ?? []).map((item, i) => (
+                              <li key={`s-${i}`} className="flex items-start gap-2 text-xs text-on-surface-variant leading-relaxed">
+                                <span className="w-1 h-1 rounded-full bg-green-500 mt-1.5 shrink-0" />
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        {/* Gaps */}
+                        <div>
+                          <p className={`text-[9px] font-bold uppercase tracking-widest mb-2 flex items-center gap-1 ${selectedResume.integrity === 'Suspicious' ? 'text-red-500' : 'text-amber-500'}`}>
+                            <span className="material-symbols-outlined text-[12px]">do_not_disturb_on</span> Gaps
+                          </p>
+                          <ul className="space-y-2">
+                            {(selectedResume.xai_insights?.gaps ?? []).map((item, i) => (
+                              <li key={`g-${i}`} className="flex items-start gap-2 text-xs text-on-surface-variant leading-relaxed">
+                                <span className={`w-1 h-1 rounded-full mt-1.5 shrink-0 ${selectedResume.integrity === 'Suspicious' ? 'bg-red-500 animate-pulse' : 'bg-amber-400'}`} />
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        {/* Verdict */}
+                        <div className="rounded-lg bg-surface-container-high/30 px-3 py-2.5 border border-outline-variant/10">
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface-variant mb-1.5">AI Verdict</p>
+                          <p className="text-xs text-on-surface leading-relaxed font-medium">
+                            {selectedResume.xai_insights?.verdict ?? 'Awaiting backend explainability details.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Skills tags */}
+                      {selectedResume.skills.length > 0 && (
+                        <div className="mt-4">
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface-variant mb-2">Skills</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {selectedResume.skills.map((skill, i) => (
+                              <span key={i} className="bg-primary/5 text-primary text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide border border-primary/10">
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </aside>
             </div>
 
-            <div className="lg:col-span-8 xl:col-span-9 bg-surface-container-lowest rounded-2xl border border-outline-variant/10 p-4 shadow-sm h-[76vh]">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-headline font-bold text-base">Resume Viewer</h3>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">PDF</span>
+            {/* ── Bottom bar: Analysis time ── */}
+            <div className="flex items-center justify-between px-6 py-3 bg-surface-container-low border-t border-outline-variant/15 shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-green-600 text-sm" style={{fontVariationSettings: "'FILL' 1"}}>check_circle</span>
+                <span className="text-xs font-medium text-on-surface-variant">
+                  Analyzed <strong className="text-on-surface">{results.length} resume{results.length !== 1 ? 's' : ''}</strong> in{' '}
+                  <strong className="text-on-surface">{analysisDuration.toFixed(1)}s</strong>
+                </span>
               </div>
-              <div className="rounded-xl overflow-hidden border border-outline-variant/20 h-[calc(76vh-56px)] bg-surface">
-                <iframe
-                  title={`resume-main-${selectedResume?.id ?? 'none'}`}
-                  src={(selectedResume?.resume_url || FALLBACK_PDF)}
-                  className="w-full h-full"
-                />
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/50">
+                  Job: {selectedJob?.title ?? 'N/A'}
+                </span>
+                <button
+                  onClick={() => { setAnalysisDone(false); setResults([]); setUploadedFiles([]); setSelectedResumeId(''); atsCtx.setResumeList([]); }}
+                  className="text-xs text-primary font-bold hover:underline underline-offset-2 flex items-center gap-1"
+                >
+                  <span className="material-symbols-outlined text-sm">refresh</span>
+                  New Analysis
+                </button>
               </div>
             </div>
           </section>
         )}
       </div>
 
-      <aside className={`w-[420px] shrink-0 hidden xl:flex flex-col gap-6 sticky top-0 h-screen py-2 transition-all duration-200 ${isAnalyzing ? 'blur-xl pointer-events-none select-none saturate-50 opacity-70' : ''}`}>
-        {!selectedResume && (
-          <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/10 p-6 shadow-sm">
-            <h4 className="font-headline font-bold">Resume Details</h4>
-            <p className="text-sm text-on-surface-variant mt-2">Select a ranked resume to preview PDF and analysis details.</p>
-          </div>
-        )}
-
-        {selectedResume && (
-          <>
-            <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/10 p-5 shadow-sm">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="font-headline font-bold text-lg">Resume Preview</h4>
-                <span className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">PDF Viewer</span>
-              </div>
-              <div className="rounded-xl overflow-hidden border border-outline-variant/20 h-[280px] bg-surface">
-                <iframe
-                  title={`resume-${selectedResume.id}`}
-                  src={selectedResume.resume_url || FALLBACK_PDF}
-                  className="w-full h-full"
-                />
-              </div>
-            </div>
-
-            <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/10 p-5 shadow-sm flex flex-col gap-5">
-              <div>
-                <h4 className="font-headline font-bold text-lg">{selectedResume.name}</h4>
-                <p className="text-sm text-on-surface-variant">{selectedResume.role}</p>
-                <p className="text-xs text-on-surface-variant mt-1">{selectedResume.location}</p>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h5 className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">JD Match Radar</h5>
-                  <span className="font-black text-primary">{selectedResume.score}%</span>
-                </div>
-                <div className="w-full max-w-[300px] mx-auto">
-                  <svg viewBox="0 0 100 100" className="w-full h-full">
-                    {[10, 20, 30, 40].map((r) => (
-                      <polygon
-                        key={r}
-                        points={Array.from({ length: 6 }).map((_, i) => {
-                          const angle = (Math.PI * 2 * i) / 6 - Math.PI / 2;
-                          return `${50 + Math.cos(angle) * r},${50 + Math.sin(angle) * r}`;
-                        }).join(' ')}
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="0.5"
-                        className="text-outline-variant/50"
-                      />
-                    ))}
-
-                    {Array.from({ length: 6 }).map((_, i) => {
-                      const out = getOuterPoint(i, 6);
-                      return (
-                        <line
-                          key={i}
-                          x1={50}
-                          y1={50}
-                          x2={out.x}
-                          y2={out.y}
-                          stroke="currentColor"
-                          strokeWidth="0.45"
-                          className="text-outline-variant/40"
-                        />
-                      );
-                    })}
-
-                    <polygon
-                      points={toPolygonPoints(selectedResume.breakdown)}
-                      fill="rgba(70, 72, 212, 0.2)"
-                      stroke="#4648d4"
-                      strokeWidth="1.5"
-                    />
-
-                    {['SEMANTIC', 'SKILLS', 'EXP', 'EDU', 'PROJECTS', 'ALIGN'].map((label, i) => {
-                      const p = getLabelPoint(i, 6);
-                      return (
-                        <text
-                          key={label}
-                          x={p.x}
-                          y={p.y}
-                          textAnchor="middle"
-                          dominantBaseline="middle"
-                          fontSize="3"
-                          className="fill-current text-on-surface-variant"
-                        >
-                          {label}
-                        </text>
-                      );
-                    })}
-                  </svg>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 text-[11px] font-bold">
-                <div className="rounded-md bg-surface-container px-2 py-1 flex justify-between"><span>Semantic</span><span>{toPercent(selectedResume.breakdown.semantic)}</span></div>
-                <div className="rounded-md bg-surface-container px-2 py-1 flex justify-between"><span>Skills</span><span>{toPercent(selectedResume.breakdown.skills)}</span></div>
-                <div className="rounded-md bg-surface-container px-2 py-1 flex justify-between"><span>Experience</span><span>{toPercent(selectedResume.breakdown.experience)}</span></div>
-                <div className="rounded-md bg-surface-container px-2 py-1 flex justify-between"><span>Education</span><span>{toPercent(selectedResume.breakdown.education)}</span></div>
-                <div className="rounded-md bg-surface-container px-2 py-1 flex justify-between"><span>Projects</span><span>{toPercent(selectedResume.breakdown.projects)}</span></div>
-                <div className="rounded-md bg-surface-container px-2 py-1 flex justify-between"><span>Alignment</span><span>{toPercent(selectedResume.breakdown.alignment)}</span></div>
-              </div>
-
-              <div>
-                <h5 className="text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-2">Explainable AI</h5>
-                <div className="space-y-2">
-                  <div>
-                    <p className="text-xs font-bold text-secondary">Strengths</p>
-                    <ul className="text-xs text-on-surface-variant list-disc pl-4 mt-1 space-y-1">
-                      {(selectedResume.xai_insights?.strengths ?? []).map((item, i) => (
-                        <li key={`s-${i}`}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div>
-                    <p className="text-xs font-bold text-error">Gaps</p>
-                    <ul className="text-xs text-on-surface-variant list-disc pl-4 mt-1 space-y-1">
-                      {(selectedResume.xai_insights?.gaps ?? []).map((item, i) => (
-                        <li key={`g-${i}`}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div className="rounded-md bg-surface-container px-3 py-2">
-                    <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface-variant mb-1">Verdict</p>
-                    <p className="text-xs text-on-surface-variant">{selectedResume.xai_insights?.verdict ?? 'Awaiting backend explainability details.'}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-      </aside>
-
+      {/* ─── Pipeline loading overlay ─── */}
       {isAnalyzing && (
         <div className="absolute inset-0 z-[60] bg-black/15 backdrop-blur-xl flex items-center justify-center p-6 rounded-2xl">
           <div className="w-full max-w-md bg-surface-container-lowest rounded-xl border border-outline-variant/20 p-4 shadow-xl">

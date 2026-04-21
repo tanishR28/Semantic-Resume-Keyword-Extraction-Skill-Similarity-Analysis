@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar';
 import JobManagement from './pages/JobManagement';
 import ATS from './pages/ATS';
 import ExplainableAI from './pages/ExplainableAI';
+import { ATSProvider } from './context/ATSContext';
 
 function Layout({ children }: { children: React.ReactNode }) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -30,14 +31,16 @@ function Layout({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <BrowserRouter>
-      <Layout>
-        <Routes>
-          <Route path="/" element={<ATS />} />
-          <Route path="/ats" element={<ATS />} />
-          <Route path="/job-management" element={<JobManagement />} />
-          <Route path="/candidate/:id" element={<ExplainableAI />} />
-        </Routes>
-      </Layout>
+      <ATSProvider>
+        <Layout>
+          <Routes>
+            <Route path="/" element={<ATS />} />
+            <Route path="/ats" element={<ATS />} />
+            <Route path="/job-management" element={<JobManagement />} />
+            <Route path="/candidate/:id" element={<ExplainableAI />} />
+          </Routes>
+        </Layout>
+      </ATSProvider>
     </BrowserRouter>
   );
 }
