@@ -2,6 +2,8 @@
 
 <div align="center">
 
+https://semantic-resume-keyword-extraction-skill.onrender.com/
+
 ![TalentPulse AI](https://img.shields.io/badge/TalentPulse-AI-6366f1?style=for-the-badge&logo=sparkles&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)
