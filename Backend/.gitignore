@@ -126,8 +126,6 @@ dmypy.json
 cython_debug/
 
 # Model and weights
-.models/
-models/
 *.pt
 *.pth
 *.bin
