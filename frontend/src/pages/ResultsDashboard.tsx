@@ -1,4 +1,3 @@
-import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TALENT_DATA } from '../data';
 
@@ -117,7 +116,7 @@ const ResultsDashboard = () => {
 
               {/* Right: Insights & Score */}
               <div className="flex items-center gap-x-8 lg:gap-x-12 shrink-0">
-                <div className="flex flex-col gap-y-1 hidden sm:flex">
+                <div className="hidden sm:flex sm:flex-col sm:gap-y-1">
                   <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/50">AI Summary</span>
                   <p className="text-xs max-w-[200px] leading-relaxed text-on-surface/80 line-clamp-3">
                     {cand.insights[0]}
